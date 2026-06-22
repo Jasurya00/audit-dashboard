@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audit Dashboard</title>
+  <style>
+    :root {
+      --primary: #4a90d9;
+      --primary-dark: #357abd;
+      --success: #28a745;
+      --fail: #dc3545;
+      --blocked: #ffc107;
+      --retest: #fd7e14;
+      --untested: #6c757d;
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --border: #dee2e6;
+      --text: #212529;
+      --text-muted: #6c757d;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem;
+    }
+
+    .container { max-width: 1400px; margin: 0 auto; }
+
+    h1 {
+      font-size: 1.75rem;
+      margin-bottom: 1.5rem;
+      color: var(--primary-dark);
+    }
+
+    .config-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      display: grid;
+      gap: 1rem;
+      align-items: end;
+    }
+
+    .config-panel.credentials {
+      grid-template-columns: 1fr 1fr 1fr auto;
+    }
+
+    .config-panel.query {
+      grid-template-columns: 1fr 1fr 1fr 1fr auto;
+    }
+
+    .config-panel label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+    }
+
+    .config-panel input, .config-panel select {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .config-panel input:focus, .config-panel select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+    }
+
+    .btn {
+      padding: 0.5rem 1.25rem;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-primary:disabled { background: #a0c4e8; cursor: not-allowed; }
+
+    .btn-secondary { background: #6c757d; color: #fff; }
+    .btn-secondary:hover { background: #5a6268; }
+
+    .stats-bar {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      flex: 1;
+      min-width: 120px;
+      text-align: center;
+    }
+
+    .stat-card .number { font-size: 1.75rem; font-weight: 700; }
+    .stat-card .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; }
+
+    .table-wrapper {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    thead { background: #f1f3f5; }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    th { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; }
+
+    tbody tr:hover { background: #f8f9ff; }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .testrail-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .testrail-link:hover { text-decoration: underline; }
+
+    .attachment-list { list-style: none; }
+    .attachment-list li { margin-bottom: 0.25rem; }
+    .attachment-list a { color: var(--primary); font-size: 0.8rem; text-decoration: none; }
+    .attachment-list a:hover { text-decoration: underline; }
+
+    .loading {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-muted);
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      background: #fff5f5;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state p { margin-top: 0.5rem; font-size: 0.9rem; }
+
+    .filter-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      align-items: center;
+    }
+
+    .filter-row input {
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.85rem;
+      width: 250px;
+    }
+
+    .filter-row select {
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .saved-toast {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background: var(--success);
+      color: #fff;
+      padding: 0.75rem 1.25rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 1000;
+    }
+
+    .saved-toast.show { opacity: 1; }
+
+    .info-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .config-panel { grid-template-columns: 1fr !important; }
+      body { padding: 1rem; }
+    }
+
+    .audit-comment-input {
+      width: 100%;
+      min-width: 150px;
+      padding: 0.35rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+
+    .audit-comment-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+    }
+
+    .row-checkbox {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📋 Audit Dashboard</h1>
+
+    <!-- Credentials -->
+    <div class="config-panel credentials">
+      <div>
+        <label for="baseUrl">TestRail Base URL</label>
+        <input type="text" id="baseUrl" placeholder="https://yourinstance.testrail.io" />
+      </div>
+      <div>
+        <label for="username">Username (Email)</label>
+        <input type="text" id="username" placeholder="user@example.com" />
+      </div>
+      <div>
+        <label for="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="Your TestRail API key" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" id="saveConfig">Save Config</button>
+      </div>
+    </div>
+
+    <!-- Query Panel: Project, Tester, Timeframe -->
+    <div class="config-panel query">
+      <div>
+        <label for="projectSelect">Project</label>
+        <select id="projectSelect">
+          <option value="">-- Load projects first --</option>
+        </select>
+      </div>
+      <div>
+        <label for="testerInput">Tester (Name, Email, or User ID)</label>
+        <input type="text" id="testerInput" placeholder="e.g. john@example.com or 2864" />
+      </div>
+      <div>
+        <label for="dateFrom">From Date</label>
+        <input type="date" id="dateFrom" />
+      </div>
+      <div>
+        <label for="dateTo">To Date</label>
+        <input type="date" id="dateTo" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" id="fetchBtn">Fetch Results</button>
+      </div>
+    </div>
+
+    <p class="info-text">Select a project, enter a tester name/email/user ID, and set a date range to audit their test activity.</p>
+
+    <div id="error"></div>
+    <div id="stats"></div>
+
+    <div id="filterSection" style="display:none;">
+      <div class="filter-row">
+        <input type="text" id="searchFilter" placeholder="Search by test title or run name..." />
+        <select id="statusFilter">
+          <option value="">All Statuses</option>
+        </select>
+        <button class="btn btn-secondary" id="downloadBtn">⬇ Download Selected</button>
+      </div>
+    </div>
+
+    <div id="results">
+      <div class="empty-state">
+        <h2>No data loaded</h2>
+        <p>Configure credentials, select a project, tester, and date range, then click "Fetch Results".</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="saved-toast" id="toast">Config saved!</div>
+
+  <script>
+    // Status maps — populated dynamically from API
+    let STATUS_MAP = {
+      1: 'Passed', 2: 'Blocked', 3: 'Untested', 4: 'Retest', 5: 'Failed'
+    };
+    const STATUS_COLORS = {
+      1: '#28a745', 2: '#ffc107', 3: '#6c757d', 4: '#fd7e14', 5: '#dc3545'
+    };
+    const CUSTOM_COLORS = ['#8e44ad', '#1abc9c', '#95a5a6', '#2ecc71', '#7f8c8d', '#e67e22', '#3498db', '#e74c3c', '#9b59b6', '#16a085'];
+
+    let allResults = [];
+    let usersCache = {
+      2864: 'Mugilan R',
+      2893: 'Bajarat',
+      2823: 'Chandru',
+      2890: 'Subhashri',
+      2859: 'Jeyasurya',
+      2697: 'Premkumar'
+    };
+
+    // --- Config management ---
+    function loadConfig() {
+      const config = JSON.parse(localStorage.getItem('audit_config') || '{}');
+      if (config.baseUrl) document.getElementById('baseUrl').value = config.baseUrl;
+      if (config.username) document.getElementById('username').value = config.username;
+      if (config.apiKey) document.getElementById('apiKey').value = config.apiKey;
+    }
+
+    function saveConfig() {
+      const config = {
+        baseUrl: document.getElementById('baseUrl').value.replace(/\/$/, ''),
+        username: document.getElementById('username').value,
+        apiKey: document.getElementById('apiKey').value
+      };
+      localStorage.setItem('audit_config', JSON.stringify(config));
+      showError('');
+      showToast('Config saved!');
+      // Auto-load projects after saving config
+      loadProjects();
+    }
+
+    function getConfig() {
+      return JSON.parse(localStorage.getItem('audit_config') || '{}');
+    }
+
+    function getAuthBase64() {
+      const config = getConfig();
+      return btoa(config.username + ':' + config.apiKey);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function showError(msg) {
+      document.getElementById('error').innerHTML = msg ? `<div class="error">${msg}</div>` : '';
+    }
+
+    // --- API helper (uses proxy) ---
+    async function apiGet(endpoint) {
+      const config = getConfig();
+      const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
+      const auth = getAuthBase64();
+      const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`API error ${resp.status}: ${text}`);
+      }
+      return resp.json();
+    }
+
+    // --- Load projects ---
+    async function loadProjects() {
+      const config = getConfig();
+      if (!config.baseUrl || !config.username || !config.apiKey) return;
+
+      const select = document.getElementById('projectSelect');
+      select.innerHTML = '<option value="">Loading...</option>';
+
+      try {
+        const data = await apiGet('get_projects');
+        const projects = data.projects || data || [];
+        select.innerHTML = '<option value="">-- Select a project --</option>';
+        projects.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        select.innerHTML = '<option value="">-- Failed to load --</option>';
+        showError(`Failed to load projects: ${escapeHtml(err.message)}`);
+      }
+    }
+
+    // Alias map: alternate names/logins that map to user IDs
+    const userAliases = {
+      'jeyasunr': 2859,
+      'preskum': 2697
+    };
+
+    // --- Resolve tester input to a user ID ---
+    // Accepts: numeric ID, email, or name (partial match)
+    async function resolveTesterId(input, projectId) {
+      input = input.trim();
+      if (!input) return null;
+
+      // Check aliases first
+      const lowerAlias = input.toLowerCase();
+      if (userAliases[lowerAlias]) {
+        const aliasId = userAliases[lowerAlias];
+        return aliasId;
+      }
+
+      // If it's a pure number, use it directly as user ID
+      if (/^\d+$/.test(input)) {
+        const numId = parseInt(input);
+        // Check local cache first
+        if (usersCache[numId]) return numId;
+        // Verify it exists
+        try {
+          const user = await apiGet(`get_user/${input}`);
+          usersCache[user.id] = user.name || user.email;
+          return user.id;
+        } catch {
+          // If get_user fails, just trust the numeric ID
+          if (!usersCache[numId]) usersCache[numId] = `User ${numId}`;
+          return numId;
+        }
+      }
+
+      // Check if input matches any name in our local cache
+      const lowerInput = input.toLowerCase();
+      for (const [id, name] of Object.entries(usersCache)) {
+        if (name.toLowerCase() === lowerInput || name.toLowerCase().includes(lowerInput)) {
+          return parseInt(id);
+        }
+      }
+
+      // Try to get users from project or globally
+      let users = [];
+      try {
+        const data = await apiGet(`get_users/${projectId}`);
+        users = Array.isArray(data) ? data : (data.users || []);
+      } catch {
+        try {
+          const data = await apiGet('get_users');
+          users = Array.isArray(data) ? data : (data.users || []);
+        } catch {
+          throw new Error(`Cannot look up users. Try entering the numeric user ID directly instead of a name/email.`);
+        }
+      }
+
+      // Cache all fetched users for future lookups
+      users.forEach(u => {
+        if (u.id && (u.name || u.email)) {
+          usersCache[u.id] = u.name || u.email;
+        }
+      });
+
+      // Try exact email match first
+      let match = users.find(u => (u.email || '').toLowerCase() === lowerInput);
+
+      // Then try exact name match
+      if (!match) {
+        match = users.find(u => (u.name || '').toLowerCase() === lowerInput);
+      }
+
+      // Then try partial name/email match
+      if (!match) {
+        match = users.find(u =>
+          (u.name || '').toLowerCase().includes(lowerInput) ||
+          (u.email || '').toLowerCase().includes(lowerInput)
+        );
+      }
+
+      // Also try matching the login/username part of email (before @)
+      if (!match) {
+        match = users.find(u => {
+          const emailPrefix = (u.email || '').split('@')[0].toLowerCase();
+          return emailPrefix === lowerInput || emailPrefix.includes(lowerInput);
+        });
+      }
+
+      if (match) {
+        usersCache[match.id] = match.name || match.email;
+        return match.id;
+      }
+
+      throw new Error(`No user found matching "${input}" in this project. Try using their exact email, full name, or numeric user ID.`);
+    }
+
+    // --- Fetch statuses ---
+    async function fetchStatuses() {
+      try {
+        const statuses = await apiGet('get_statuses');
+        const statusList = Array.isArray(statuses) ? statuses : (statuses.statuses || []);
+        if (statusList.length > 0) {
+          STATUS_MAP = {};
+          statusList.forEach((s, idx) => {
+            STATUS_MAP[s.id] = s.label || s.name || `Status ${s.id}`;
+            if (!STATUS_COLORS[s.id]) {
+              STATUS_COLORS[s.id] = s.color_dark ? `#${s.color_dark.toString(16).padStart(6, '0')}` : CUSTOM_COLORS[idx % CUSTOM_COLORS.length];
+            }
+          });
+        }
+        if (!STATUS_MAP[3]) STATUS_MAP[3] = 'Untested';
+        updateStatusFilter();
+      } catch (e) {
+        console.warn('Could not fetch statuses, using defaults:', e.message);
+      }
+    }
+
+    function updateStatusFilter() {
+      const select = document.getElementById('statusFilter');
+      select.innerHTML = '<option value="">All Statuses</option>';
+      Object.keys(STATUS_MAP).sort((a, b) => Number(a) - Number(b)).forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = STATUS_MAP[id];
+        select.appendChild(opt);
+      });
+    }
+
+    // --- Fetch results by tester + timeframe ---
+    async function fetchData() {
+      const projectId = document.getElementById('projectSelect').value;
+      const testerInput = document.getElementById('testerInput').value;
+      const dateFrom = document.getElementById('dateFrom').value;
+      const dateTo = document.getElementById('dateTo').value;
+
+      if (!projectId) { showError('Please select a project.'); return; }
+      if (!testerInput.trim()) { showError('Please enter a tester name, email, or user ID.'); return; }
+
+      const config = getConfig();
+      if (!config.baseUrl || !config.username || !config.apiKey) {
+        showError('Please save your config first (URL, username, and API key).');
+        return;
+      }
+
+      showError('');
+      document.getElementById('stats').innerHTML = '';
+      document.getElementById('filterSection').style.display = 'none';
+      document.getElementById('results').innerHTML = '<div class="loading"><span class="spinner"></span>Resolving tester...</div>';
+
+      try {
+        // Resolve the tester input to a numeric user ID
+        const userId = await resolveTesterId(testerInput, projectId);
+        const testerName = usersCache[userId] || testerInput;
+
+        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Found: ${escapeHtml(testerName)} (ID: ${userId}). Fetching statuses & runs...</div>`;
+
+        await fetchStatuses();
+
+        // Build server-side request
+        const auth = getAuthBase64();
+        let url = `/api/results-by-tester?baseUrl=${encodeURIComponent(config.baseUrl)}&auth=${encodeURIComponent(auth)}&projectId=${projectId}&userId=${userId}`;
+
+        if (dateFrom) {
+          url += `&createdAfter=${Math.floor(new Date(dateFrom).getTime() / 1000)}`;
+        }
+        if (dateTo) {
+          // Add 1 day to include the entire "to" date
+          const toTimestamp = Math.floor(new Date(dateTo).getTime() / 1000) + 86400;
+          url += `&createdBefore=${toTimestamp}`;
+        }
+
+        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching test results for ${escapeHtml(testerName)}...</div>`;
+
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const errData = await resp.json();
+          throw new Error(errData.error || `Server error ${resp.status}`);
+        }
+        const data = await resp.json();
+        const results = data.results || [];
+
+        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results from ${data.runs} runs...</div>`;
+
+        // Enrich results with title, previous results, comments, and attachments
+        const enriched = [];
+        const batchSize = 10;
+
+        for (let i = 0; i < results.length; i += batchSize) {
+          const batch = results.slice(i, i + batchSize);
+          const batchPromises = batch.map(async (result) => {
+            let title = `Case ${result.case_id || 'N/A'}`;
+            let attachmentsHtml = '<span style="color:#999">None</span>';
+            let testedOn = result.created_on ? new Date(result.created_on * 1000).toLocaleString() : 'N/A';
+
+            // Get test title
+            if (result.test_id) {
+              try {
+                const test = await apiGet(`get_test/${result.test_id}`);
+                title = test.title || title;
+              } catch { /* use default */ }
+            }
+
+            // Fetch attachments
+            if (result.test_id) {
+              try {
+                const attData = await apiGet(`get_attachments_for_test/${result.test_id}`);
+                const attachments = attData.attachments || attData || [];
+                if (Array.isArray(attachments) && attachments.length > 0) {
+                  attachmentsHtml = '<ul class="attachment-list">' +
+                    attachments.slice(0, 3).map(a => {
+                      const downloadUrl = `${config.baseUrl}/index.php?/attachments/get/${a.id}`;
+                      return `<li><a href="${downloadUrl}" target="_blank">📎 ${escapeHtml(a.filename || a.name || 'attachment')}</a></li>`;
+                    }).join('') +
+                    (attachments.length > 3 ? `<li style="color:#999; font-size:0.75rem">+${attachments.length - 3} more</li>` : '') +
+                    '</ul>';
+                }
+              } catch { /* ignore */ }
+            }
+
+            // Comment from the result
+            const comment = result.comment
+              ? escapeHtml(result.comment.replace(/<[^>]*>/g, '').trim().substring(0, 150))
+              : '';
+
+            // Resolve "Tested By" from created_by (the user who submitted/updated this result status)
+            let testedByName = 'N/A';
+            if (result.created_by) {
+              if (usersCache[result.created_by]) {
+                testedByName = usersCache[result.created_by];
+              } else {
+                try {
+                  const user = await apiGet(`get_user/${result.created_by}`);
+                  usersCache[user.id] = user.name || user.email || `User ${user.id}`;
+                  testedByName = usersCache[user.id];
+                } catch {
+                  testedByName = `User ${result.created_by}`;
+                  usersCache[result.created_by] = testedByName;
+                }
+              }
+            }
+
+            return {
+              id: result.test_id || result.id,
+              case_id: result.case_id,
+              title: title,
+              status_id: result.status_id,
+              testedBy: testedByName,
+              testedOn: testedOn,
+              comment: comment,
+              run_name: result._run_name || `Run ${result._run_id}`,
+              run_id: result._run_id,
+              attachmentsHtml: attachmentsHtml
+            };
+          });
+
+          const batchResults = await Promise.all(batchPromises);
+          enriched.push(...batchResults);
+
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Loading details... ${enriched.length}/${results.length}</div>`;
+        }
+
+        allResults = enriched;
+        renderStats(enriched);
+        document.getElementById('filterSection').style.display = 'block';
+        renderTable(allResults);
+
+      } catch (err) {
+        showError(`Failed to fetch data: ${escapeHtml(err.message)}`);
+        document.getElementById('results').innerHTML = '';
+      }
+    }
+
+    // --- Render stats ---
+    function renderStats(results) {
+      const counts = {};
+      results.forEach(r => { counts[r.status_id] = (counts[r.status_id] || 0) + 1; });
+
+      let cardsHtml = `<div class="stat-card"><div class="number">${results.length}</div><div class="label">Total</div></div>`;
+
+      Object.keys(STATUS_MAP).sort((a, b) => Number(a) - Number(b)).forEach(id => {
+        const count = counts[id] || 0;
+        if (count === 0) return;
+        const color = STATUS_COLORS[id] || '#6c757d';
+        cardsHtml += `<div class="stat-card"><div class="number" style="color:${color}">${count}</div><div class="label">${STATUS_MAP[id]}</div></div>`;
+      });
+
+      document.getElementById('stats').innerHTML = `<div class="stats-bar">${cardsHtml}</div>`;
+    }
+
+    // --- Render table ---
+    function renderTable(data) {
+      const config = getConfig();
+      const baseUrl = config.baseUrl;
+
+      if (data.length === 0) {
+        document.getElementById('results').innerHTML = '<div class="empty-state"><p>No results match the current filter.</p></div>';
+        return;
+      }
+
+      let html = `<div class="table-wrapper"><table>
+        <thead><tr>
+          <th><input type="checkbox" id="selectAll" title="Select All" /></th>
+          <th>TestRail ID</th>
+          <th>Title</th>
+          <th>Current Result</th>
+          <th>Run</th>
+          <th>Tested By</th>
+          <th>Tested On</th>
+          <th>Comments</th>
+          <th>Attachments</th>
+          <th>Audit Comments</th>
+        </tr></thead><tbody>`;
+
+      data.forEach(row => {
+        const testLink = row.id ? `${baseUrl}/index.php?/tests/view/${row.id}` : '#';
+        const runLink = row.run_id ? `${baseUrl}/index.php?/runs/view/${row.run_id}` : '#';
+
+        html += `<tr>
+          <td><input type="checkbox" class="row-checkbox" data-id="${row.id || ''}" /></td>
+          <td>
+            <a class="testrail-link" href="${testLink}" target="_blank">T${row.id || '?'}</a>
+          </td>
+          <td style="white-space:normal; max-width:300px;">${escapeHtml(row.title || '')}</td>
+          <td>${getStatusBadge(row.status_id)}</td>
+          <td><a class="testrail-link" href="${runLink}" target="_blank">${escapeHtml(row.run_name || '')}</a></td>
+          <td>${escapeHtml(row.testedBy || 'N/A')}</td>
+          <td>${row.testedOn || 'N/A'}</td>
+          <td style="white-space:normal; max-width:250px; font-size:0.8rem;">${row.comment || '<span style="color:#999">—</span>'}</td>
+          <td>${row.attachmentsHtml || '<span style="color:#999">None</span>'}</td>
+          <td><input type="text" class="audit-comment-input" data-id="${row.id || ''}" placeholder="Enter audit comment..." /></td>
+        </tr>`;
+      });
+
+      html += '</tbody></table></div>';
+      document.getElementById('results').innerHTML = html;
+
+      // Select All checkbox functionality
+      const selectAll = document.getElementById('selectAll');
+      if (selectAll) {
+        selectAll.addEventListener('change', function() {
+          document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = this.checked);
+        });
+      }
+    }
+
+    function getStatusBadge(statusId) {
+      if (!statusId) return '<span style="color:#999">—</span>';
+      const label = STATUS_MAP[statusId] || `Status ${statusId}`;
+      const color = STATUS_COLORS[statusId] || '#6c757d';
+      const textColor = (statusId === 2) ? '#000' : '#fff';
+      return `<span class="status-badge" style="background:${color}; color:${textColor}">${label}</span>`;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // --- Filters ---
+    function applyFilters() {
+      const search = document.getElementById('searchFilter').value.toLowerCase();
+      const statusFilter = document.getElementById('statusFilter').value;
+
+      let filtered = allResults;
+      if (search) {
+        filtered = filtered.filter(r =>
+          (r.title || '').toLowerCase().includes(search) ||
+          (r.run_name || '').toLowerCase().includes(search)
+        );
+      }
+      if (statusFilter) {
+        filtered = filtered.filter(r => String(r.status_id) === statusFilter);
+      }
+      renderTable(filtered);
+    }
+
+    // --- Download selected rows as CSV ---
+    function downloadSelected() {
+      const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+      if (checkboxes.length === 0) {
+        showError('Please select at least one row to download.');
+        return;
+      }
+
+      showError('');
+      const selectedIds = new Set();
+      checkboxes.forEach(cb => selectedIds.add(cb.dataset.id));
+
+      // Get audit comments from the inputs
+      const auditComments = {};
+      document.querySelectorAll('.audit-comment-input').forEach(input => {
+        if (input.value.trim()) {
+          auditComments[input.dataset.id] = input.value.trim();
+        }
+      });
+
+      // Filter allResults to selected rows
+      const selectedRows = allResults.filter(r => selectedIds.has(String(r.id || '')));
+
+      // Count stats
+      const totalCases = selectedRows.length;
+      const auditCommentedCases = selectedRows.filter(r => auditComments[String(r.id || '')]).length;
+
+      // Build CSV
+      const csvHeaders = ['TestRail ID', 'Title', 'Current Result', 'Run', 'Tested By', 'Tested On', 'Comments', 'Attachments', 'Audit Comments'];
+      const csvRows = selectedRows.map(row => {
+        const statusLabel = STATUS_MAP[row.status_id] || `Status ${row.status_id}`;
+        const auditComment = auditComments[String(row.id || '')] || '';
+        // Strip HTML from attachments for CSV
+        const attachText = (row.attachmentsHtml || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() || 'None';
+        return [
+          `T${row.id || '?'}`,
+          row.title || '',
+          statusLabel,
+          row.run_name || '',
+          row.testedBy || 'N/A',
+          row.testedOn || 'N/A',
+          row.comment || '',
+          attachText,
+          auditComment
+        ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
+      });
+
+      // Add summary section
+      // Total cases = all fetched results (from the stats bar)
+      // Audit commented cases = only from selected rows that have an audit comment
+      const totalFetchedCases = allResults.length;
+      csvRows.push('');
+      csvRows.push(`"Summary"`);
+      csvRows.push(`"Total Cases","${totalFetchedCases}"`);
+      csvRows.push(`"Audit Commented Cases","${auditCommentedCases}"`);
+      const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit_report_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      showToast(`Downloaded ${totalCases} cases (${auditCommentedCases} with audit comments)`);
+    }
+
+    // --- Event listeners ---
+    document.getElementById('saveConfig').addEventListener('click', saveConfig);
+    document.getElementById('fetchBtn').addEventListener('click', fetchData);
+    document.getElementById('searchFilter').addEventListener('input', applyFilters);
+    document.getElementById('statusFilter').addEventListener('change', applyFilters);
+    document.getElementById('downloadBtn').addEventListener('click', downloadSelected);
+
+    // --- Init ---
+    loadConfig();
+    loadProjects();
+  </script>
+</body>
+</html>
