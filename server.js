@@ -4,6 +4,33 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Basic auth credentials (set via environment variables on Render, or defaults for local dev)
+const AUTH_USER = process.env.AUTH_USER || 'admin';
+const AUTH_PASS = process.env.AUTH_PASS || 'audit@2024';
+
+// Basic authentication middleware
+function basicAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Audit Dashboard"');
+    return res.status(401).send('Authentication required.');
+  }
+
+  const credentials = Buffer.from(authHeader.split(' ')[1], 'base64').toString();
+  const [user, pass] = credentials.split(':');
+
+  if (user === AUTH_USER && pass === AUTH_PASS) {
+    return next();
+  }
+
+  res.setHeader('WWW-Authenticate', 'Basic realm="Audit Dashboard"');
+  return res.status(401).send('Invalid credentials.');
+}
+
+// Apply basic auth to all routes
+app.use(basicAuth);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -141,3 +168,5 @@ app.get('/api/results-by-tester', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Audit Dashboard running at http://localhost:${PORT}`);
 });
+
+module.exports = app;
