@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 3001;
 
 // Basic auth credentials (set via environment variables on Render, or defaults for local dev)
 const AUTH_USER = process.env.AUTH_USER || 'admin';
-const AUTH_PASS = process.env.AUTH_PASS || 'audit@2024';
+const AUTH_PASS = process.env.AUTH_PASS || 'audit@2026';
 
 // Basic authentication middleware
 function basicAuth(req, res, next) {
