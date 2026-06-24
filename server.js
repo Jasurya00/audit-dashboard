@@ -166,7 +166,19 @@ app.get('/api/results-by-tester', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Audit Dashboard running at http://localhost:${PORT}`);
+  const url = `http://localhost:${PORT}`;
+  console.log(`Audit Dashboard running at ${url}`);
+
+  // Auto-open in browser
+  const { exec } = require('child_process');
+  const platform = process.platform;
+  if (platform === 'darwin') {
+    exec(`open ${url}`);
+  } else if (platform === 'win32') {
+    exec(`start ${url}`);
+  } else {
+    exec(`xdg-open ${url}`);
+  }
 });
 
 module.exports = app;
