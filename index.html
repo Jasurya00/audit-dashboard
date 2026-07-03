@@ -1065,6 +1065,15 @@
     document.getElementById('downloadBtn').addEventListener('click', downloadSelected);
     document.getElementById('viewAuditBtn').addEventListener('click', viewAuditReport);
 
+    // Set min date on "To Date" when "From Date" changes
+    document.getElementById('dateFrom').addEventListener('change', function() {
+      document.getElementById('dateTo').min = this.value;
+      // If current To date is before From date, reset it
+      if (document.getElementById('dateTo').value && document.getElementById('dateTo').value < this.value) {
+        document.getElementById('dateTo').value = '';
+      }
+    });
+
     // Auto-update audit report when audit comments change
     document.addEventListener('input', function(e) {
       if (e.target.classList.contains('audit-comment-input')) {
