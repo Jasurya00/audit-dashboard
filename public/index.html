@@ -266,9 +266,7 @@
     }
 
     .row-checkbox {
-      width: 16px;
-      height: 16px;
-      cursor: pointer;
+      display: none;
     }
 
     .tabs {
@@ -843,7 +841,6 @@
 
       let html = `<div class="table-wrapper"><table>
         <thead><tr>
-          <th><input type="checkbox" id="selectAll" title="Select All" /></th>
           <th>TestRail ID</th>
           <th>Title</th>
           <th>Current Result</th>
@@ -860,7 +857,6 @@
         const runLink = row.run_id ? `${baseUrl}/index.php?/runs/view/${row.run_id}` : '#';
 
         html += `<tr>
-          <td><input type="checkbox" class="row-checkbox" data-id="${row.id || ''}" /></td>
           <td>
             <a class="testrail-link" href="${testLink}" target="_blank">T${row.id || '?'}</a>
           </td>
@@ -877,14 +873,6 @@
 
       html += '</tbody></table></div>';
       document.getElementById('results').innerHTML = html;
-
-      // Select All checkbox functionality
-      const selectAll = document.getElementById('selectAll');
-      if (selectAll) {
-        selectAll.addEventListener('change', function() {
-          document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = this.checked);
-        });
-      }
     }
 
     function getStatusBadge(statusId) {
@@ -919,18 +907,8 @@
       renderTable(filtered);
     }
 
-    // --- Download selected rows as CSV ---
+    // --- Download rows with audit comments as CSV ---
     function downloadSelected() {
-      const checkboxes = document.querySelectorAll('.row-checkbox:checked');
-      if (checkboxes.length === 0) {
-        showError('Please select at least one row to download.');
-        return;
-      }
-
-      showError('');
-      const selectedIds = new Set();
-      checkboxes.forEach(cb => selectedIds.add(cb.dataset.id));
-
       // Get audit comments from the inputs
       const auditComments = {};
       document.querySelectorAll('.audit-comment-input').forEach(input => {
@@ -939,12 +917,20 @@
         }
       });
 
-      // Filter allResults to selected rows
-      const selectedRows = allResults.filter(r => selectedIds.has(String(r.id || '')));
+      if (Object.keys(auditComments).length === 0) {
+        showError('Please enter audit comments for at least one case to download.');
+        return;
+      }
+
+      showError('');
+
+      // Get rows that have audit comments
+      const commentedIds = new Set(Object.keys(auditComments));
+      const selectedRows = allResults.filter(r => commentedIds.has(String(r.id || '')));
 
       // Count stats
       const totalCases = selectedRows.length;
-      const auditCommentedCases = selectedRows.filter(r => auditComments[String(r.id || '')]).length;
+      const auditCommentedCases = selectedRows.length;
 
       // Build CSV
       const csvHeaders = ['TestRail ID', 'Title', 'Current Result', 'Run', 'Tested By', 'Tested On', 'Comments', 'Attachments', 'Audit Comments'];
@@ -983,21 +969,11 @@
       link.click();
       URL.revokeObjectURL(url);
 
-      showToast(`Downloaded ${totalCases} cases (${auditCommentedCases} with audit comments)`);
+      showToast(`Downloaded ${totalCases} cases with deviations observed`);
     }
 
     // --- View Audit Report ---
     function viewAuditReport() {
-      const checkboxes = document.querySelectorAll('.row-checkbox:checked');
-      if (checkboxes.length === 0) {
-        showError('Please select at least one row to view in the audit report.');
-        return;
-      }
-
-      showError('');
-      const selectedIds = new Set();
-      checkboxes.forEach(cb => selectedIds.add(cb.dataset.id));
-
       // Get audit comments from the inputs
       const auditComments = {};
       document.querySelectorAll('.audit-comment-input').forEach(input => {
@@ -1006,12 +982,20 @@
         }
       });
 
-      // Filter allResults to selected rows
-      const selectedRows = allResults.filter(r => selectedIds.has(String(r.id || '')));
+      if (Object.keys(auditComments).length === 0) {
+        showError('Please enter audit comments for at least one case to view the report.');
+        return;
+      }
+
+      showError('');
+
+      // Get rows that have audit comments
+      const commentedIds = new Set(Object.keys(auditComments));
+      const selectedRows = allResults.filter(r => commentedIds.has(String(r.id || '')));
 
       // Count stats
       const totalFetchedCases = allResults.length;
-      const auditCommentedCases = selectedRows.filter(r => auditComments[String(r.id || '')]).length;
+      const auditCommentedCases = selectedRows.length;
 
       // Build audit report HTML
       let html = `
