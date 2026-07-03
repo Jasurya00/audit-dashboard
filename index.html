@@ -973,7 +973,7 @@
       csvRows.push('');
       csvRows.push(`"Summary"`);
       csvRows.push(`"Total Cases","${totalFetchedCases}"`);
-      csvRows.push(`"Audit Commented Cases","${auditCommentedCases}"`);
+      csvRows.push(`"Deviations Observed","${auditCommentedCases}"`);
       const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -1019,8 +1019,7 @@
           <h3>Audit Summary</h3>
           <div class="audit-summary-stats">
             <div class="stat"><strong>${totalFetchedCases}</strong><br>Total Cases</div>
-            <div class="stat"><strong>${selectedRows.length}</strong><br>Audited Cases</div>
-            <div class="stat"><strong>${auditCommentedCases}</strong><br>Audit Commented</div>
+            <div class="stat"><strong>${auditCommentedCases}</strong><br>Deviations Observed</div>
           </div>
         </div>
         <div class="table-wrapper"><table>
