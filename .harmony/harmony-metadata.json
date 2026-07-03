@@ -1,0 +1,15 @@
+{
+  "appName": "audit-dashboard",
+  "displayName": "Audit Dashboard",
+  "description": "TestRail Audit Dashboard for tracking test execution metrics across teams",
+  "appGroup": "other",
+  "headers": [],
+  "content-security-policy": {
+    "script-src": ["'unsafe-inline'", "'unsafe-eval'"],
+    "style-src": ["'unsafe-inline'"],
+    "connect-src": ["https://3yaal3exre.execute-api.ap-south-1.amazonaws.com"]
+  },
+  "authorization": {
+    "mode": "disabled"
+  }
+}

@@ -336,7 +336,7 @@
     <div class="config-panel credentials">
       <div>
         <label for="baseUrl">TestRail Base URL</label>
-        <input type="text" id="baseUrl" placeholder="https://yourinstance.testrail.io" />
+        <input type="text" id="baseUrl" value="https://testrail.appstore.amazon.dev" />
       </div>
       <div>
         <label for="username">Username (Email)</label>
@@ -423,9 +423,7 @@
   <div class="saved-toast" id="toast">Config saved!</div>
 
   <script>
-    // Worker URL — UPDATE THIS after deploying your Cloudflare Worker
-    // Example: 'https://audit-dashboard-api.your-subdomain.workers.dev'
-    const WORKER_URL = '';  // Set to Worker URL for hosted mode, leave empty for local
+    const WORKER_URL = 'https://3yaal3exre.execute-api.ap-south-1.amazonaws.com';
 
     // Basic auth credentials for the Worker API
     const WORKER_AUTH_USER = 'admin';
