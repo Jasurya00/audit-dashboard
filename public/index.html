@@ -983,7 +983,7 @@
       });
 
       if (Object.keys(auditComments).length === 0) {
-        showError('Please enter audit comments for at least one case to view the report.');
+        document.getElementById('auditReport').innerHTML = '<div class="empty-state"><p>No audit comments entered. Add comments in the Results tab to see the report here.</p></div>';
         return;
       }
 
@@ -1064,6 +1064,16 @@
     document.getElementById('statusFilter').addEventListener('change', applyFilters);
     document.getElementById('downloadBtn').addEventListener('click', downloadSelected);
     document.getElementById('viewAuditBtn').addEventListener('click', viewAuditReport);
+
+    // Auto-update audit report when audit comments change
+    document.addEventListener('input', function(e) {
+      if (e.target.classList.contains('audit-comment-input')) {
+        // If audit tab is active, refresh it live
+        if (document.getElementById('auditTab').classList.contains('active')) {
+          viewAuditReport();
+        }
+      }
+    });
 
     // Tab click listeners
     document.querySelectorAll('.tab-btn').forEach(btn => {
