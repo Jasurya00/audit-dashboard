@@ -34,6 +34,39 @@ app.use(basicAuth);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Debug endpoint to test connectivity
+app.get('/api/debug', async (req, res) => {
+  const dns = require('dns');
+  const testUrl = 'https://testrail.appstore.amazon.dev';
+  const results = { timestamp: new Date().toISOString() };
+
+  // DNS lookup
+  try {
+    const addresses = await new Promise((resolve, reject) => {
+      dns.lookup('testrail.appstore.amazon.dev', { all: true }, (err, addrs) => {
+        if (err) reject(err);
+        else resolve(addrs);
+      });
+    });
+    results.dns = { resolved: true, addresses };
+  } catch (err) {
+    results.dns = { resolved: false, error: err.message, code: err.code };
+  }
+
+  // HTTP fetch test
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch(testUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    results.http = { reachable: true, status: resp.status };
+  } catch (err) {
+    results.http = { reachable: false, error: err.message, code: err.code };
+  }
+
+  res.json(results);
+});
+
 // Proxy endpoint to forward requests to TestRail API
 app.all('/api/proxy', async (req, res) => {
   const { url, auth } = req.query;
@@ -43,13 +76,19 @@ app.all('/api/proxy', async (req, res) => {
   }
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Authorization': `Basic ${auth}`,
         'Content-Type': 'application/json'
-      }
+      },
+      signal: controller.signal
     });
+
+    clearTimeout(timeout);
 
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -60,7 +99,14 @@ app.all('/api/proxy', async (req, res) => {
       res.status(response.status).send(text);
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const errorDetail = {
+      error: err.message,
+      code: err.code || 'UNKNOWN',
+      cause: err.cause ? err.cause.message : undefined,
+      url: url.substring(0, 80) + '...'
+    };
+    console.error('Proxy error:', errorDetail);
+    res.status(500).json(errorDetail);
   }
 });
 
