@@ -493,14 +493,13 @@
       document.getElementById('error').innerHTML = msg ? `<div class="error">${msg}</div>` : '';
     }
 
-    // --- API helper (uses server proxy on localhost, direct call on hosted) ---
+    // --- API helper ---
     async function apiGet(endpoint) {
       const config = getConfig();
       const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
       const auth = getAuthBase64();
-
-      // Always use server proxy (works on localhost where server can reach TestRail)
-      const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+      const baseApiUrl = WORKER_URL || '';
+      const proxyUrl = `${baseApiUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
       const resp = await fetch(proxyUrl);
       if (!resp.ok) {
         const text = await resp.text();
@@ -693,29 +692,27 @@
 
         await fetchStatuses();
 
-        // Use server-side endpoint to fetch results
-        const auth = getAuthBase64();
-        let url = `/api/results-by-tester?baseUrl=${encodeURIComponent(config.baseUrl)}&auth=${encodeURIComponent(auth)}&projectId=${projectId}&userId=${userId}`;
+        let results = [];
 
-        if (dateFrom) {
-          url += `&createdAfter=${Math.floor(new Date(dateFrom).getTime() / 1000)}`;
+        {
+          const auth = getAuthBase64();
+          const baseApiUrl = WORKER_URL || '';
+          let url = `${baseApiUrl}/api/results-by-tester?baseUrl=${encodeURIComponent(config.baseUrl)}&auth=${encodeURIComponent(auth)}&projectId=${projectId}&userId=${userId}`;
+          if (dateFrom) url += `&createdAfter=${Math.floor(new Date(dateFrom).getTime() / 1000)}`;
+          if (dateTo) url += `&createdBefore=${Math.floor(new Date(dateTo).getTime() / 1000) + 86400}`;
+
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching test results for ${escapeHtml(testerName)}...</div>`;
+
+          const resp = await fetch(url);
+          if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.error || `Server error ${resp.status}`);
+          }
+          const data = await resp.json();
+          results = data.results || [];
+
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results from ${data.runs} runs...</div>`;
         }
-        if (dateTo) {
-          const toTimestamp = Math.floor(new Date(dateTo).getTime() / 1000) + 86400;
-          url += `&createdBefore=${toTimestamp}`;
-        }
-
-        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching test results for ${escapeHtml(testerName)}...</div>`;
-
-        const resp = await fetch(url);
-        if (!resp.ok) {
-          const errData = await resp.json();
-          throw new Error(errData.error || `Server error ${resp.status}`);
-        }
-        const data = await resp.json();
-        const results = data.results || [];
-
-        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results from ${data.runs} runs...</div>`;
 
         // Enrich results with title, previous results, comments, and attachments
         const enriched = [];
