@@ -493,20 +493,42 @@
       document.getElementById('error').innerHTML = msg ? `<div class="error">${msg}</div>` : '';
     }
 
-    // --- API helper (uses proxy) ---
+    // --- API helper (calls TestRail directly from browser, falls back to proxy) ---
     async function apiGet(endpoint) {
       const config = getConfig();
       const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
       const auth = getAuthBase64();
-      const baseApiUrl = WORKER_URL || '';
-      const proxyUrl = `${baseApiUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
-      const fetchOptions = WORKER_URL ? { headers: { 'Authorization': getWorkerAuthHeader() } } : {};
-      const resp = await fetch(proxyUrl, fetchOptions);
-      if (!resp.ok) {
+
+      // Try direct call first (works when user's browser can reach TestRail)
+      try {
+        const resp = await fetch(targetUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (resp.ok) {
+          return resp.json();
+        }
+        // If we get a non-CORS error (like 401, 403), throw it
         const text = await resp.text();
         throw new Error(`API error ${resp.status}: ${text}`);
+      } catch (err) {
+        // If CORS blocks us, fall back to server proxy
+        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('CORS')) {
+          const baseApiUrl = WORKER_URL || '';
+          const proxyUrl = `${baseApiUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+          const fetchOptions = WORKER_URL ? { headers: { 'Authorization': getWorkerAuthHeader() } } : {};
+          const resp = await fetch(proxyUrl, fetchOptions);
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`API error ${resp.status}: ${text}`);
+          }
+          return resp.json();
+        }
+        throw err;
       }
-      return resp.json();
     }
 
     // --- Load projects ---
@@ -693,30 +715,91 @@
 
         await fetchStatuses();
 
-        // Build server-side request
+        // Fetch results directly from browser (since hosted server can't reach internal TestRail)
         const auth = getAuthBase64();
-        const baseApiUrl = WORKER_URL || '';
-        let url = `${baseApiUrl}/api/results-by-tester?baseUrl=${encodeURIComponent(config.baseUrl)}&auth=${encodeURIComponent(auth)}&projectId=${projectId}&userId=${userId}`;
+        const config2 = config;
 
-        if (dateFrom) {
-          url += `&createdAfter=${Math.floor(new Date(dateFrom).getTime() / 1000)}`;
-        }
-        if (dateTo) {
-          // Add 1 day to include the entire "to" date
-          const toTimestamp = Math.floor(new Date(dateTo).getTime() / 1000) + 86400;
-          url += `&createdBefore=${toTimestamp}`;
+        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching runs for ${escapeHtml(testerName)}...</div>`;
+
+        // Fetch all runs for the project
+        let allRuns = [];
+        let offset = 0;
+        let hasMore = true;
+        const createdAfterTs = dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : null;
+        const createdBeforeTs = dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) + 86400 : null;
+
+        while (hasMore) {
+          let runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
+          if (createdAfterTs) runsEndpoint += `&created_after=${createdAfterTs}`;
+          if (createdBeforeTs) runsEndpoint += `&created_before=${createdBeforeTs}`;
+
+          const runsData = await apiGet(runsEndpoint);
+          const runs = runsData.runs || runsData || [];
+          if (Array.isArray(runs)) {
+            allRuns = allRuns.concat(runs);
+            hasMore = runs.length === 250;
+            offset += 250;
+          } else {
+            hasMore = false;
+          }
         }
 
-        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching test results for ${escapeHtml(testerName)}...</div>`;
+        document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Found ${allRuns.length} runs. Fetching results for ${escapeHtml(testerName)}...</div>`;
 
-        const fetchOptions = WORKER_URL ? { headers: { 'Authorization': getWorkerAuthHeader() } } : {};
-        const resp = await fetch(url, fetchOptions);
-        if (!resp.ok) {
-          const errData = await resp.json();
-          throw new Error(errData.error || `Server error ${resp.status}`);
+        // Get latest result per test for each run
+        const allFetchedResults = [];
+
+        for (let ri = 0; ri < allRuns.length; ri++) {
+          const run = allRuns[ri];
+          try {
+            let resultsOffset = 0;
+            let moreResults = true;
+            const runResults = [];
+
+            while (moreResults) {
+              let resEndpoint = `get_results_for_run/${run.id}&limit=250&offset=${resultsOffset}`;
+              if (createdAfterTs) resEndpoint += `&created_after=${createdAfterTs}`;
+              if (createdBeforeTs) resEndpoint += `&created_before=${createdBeforeTs}`;
+
+              const resData = await apiGet(resEndpoint);
+              const results = resData.results || resData || [];
+
+              if (Array.isArray(results)) {
+                runResults.push(...results);
+                moreResults = results.length === 250;
+                resultsOffset += 250;
+              } else {
+                moreResults = false;
+              }
+            }
+
+            // Group by test_id, keep only latest result
+            const latestByTest = {};
+            for (const r of runResults) {
+              const testId = r.test_id || r.id;
+              if (!latestByTest[testId] || (r.created_on > latestByTest[testId].created_on)) {
+                latestByTest[testId] = r;
+              }
+            }
+
+            // Only include where latest result was created by searched user and not untested
+            const latestResults = Object.values(latestByTest).filter(r =>
+              String(r.created_by) === String(userId) && r.status_id !== 3
+            );
+            latestResults.forEach(r => {
+              r._run_id = run.id;
+              r._run_name = run.name;
+            });
+            allFetchedResults.push(...latestResults);
+
+          } catch { continue; }
+
+          if ((ri + 1) % 5 === 0 || ri === allRuns.length - 1) {
+            document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing runs ${ri + 1}/${allRuns.length}... Found ${allFetchedResults.length} results so far.</div>`;
+          }
         }
-        const data = await resp.json();
-        const results = data.results || [];
+
+        const results = allFetchedResults;
 
         document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results from ${data.runs} runs...</div>`;
 
