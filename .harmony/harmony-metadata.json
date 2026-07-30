@@ -7,7 +7,7 @@
   "content-security-policy": {
     "script-src": ["'unsafe-inline'", "'unsafe-eval'"],
     "style-src": ["'unsafe-inline'"],
-    "connect-src": ["https://3yaal3exre.execute-api.ap-south-1.amazonaws.com"]
+    "connect-src": ["https://3yaal3exre.execute-api.ap-south-1.amazonaws.com", "https://testrail.appstore.amazon.dev"]
   },
   "authorization": {
     "mode": "disabled"

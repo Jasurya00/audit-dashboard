@@ -45,7 +45,7 @@ async function handleProxy(params) {
       return { statusCode: resp.status, headers: CORS_HEADERS, body: text };
     }
   } catch (err) {
-    return response(500, { error: err.message });
+    return response(500, { error: err.message, cause: err.cause?.message || null, code: err.cause?.code || null });
   }
 }
 

@@ -349,6 +349,7 @@
       <div>
         <label>&nbsp;</label>
         <button class="btn btn-primary" id="saveConfig">Save Config</button>
+        <button class="btn btn-secondary" id="removeConfig" style="margin-left:0.5rem;">Remove Config</button>
       </div>
     </div>
 
@@ -493,13 +494,14 @@
       document.getElementById('error').innerHTML = msg ? `<div class="error">${msg}</div>` : '';
     }
 
-    // --- API helper ---
+    // --- API helper (routes through Lambda proxy) ---
     async function apiGet(endpoint) {
       const config = getConfig();
       const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
       const auth = getAuthBase64();
-      const baseApiUrl = WORKER_URL || '';
-      const proxyUrl = `${baseApiUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+
+      // Use Lambda proxy to avoid CORS and network restrictions
+      const proxyUrl = `${WORKER_URL}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
       const resp = await fetch(proxyUrl);
       if (!resp.ok) {
         const text = await resp.text();
@@ -695,23 +697,56 @@
         let results = [];
 
         {
-          const auth = getAuthBase64();
-          const baseApiUrl = WORKER_URL || '';
-          let url = `${baseApiUrl}/api/results-by-tester?baseUrl=${encodeURIComponent(config.baseUrl)}&auth=${encodeURIComponent(auth)}&projectId=${projectId}&userId=${userId}`;
-          if (dateFrom) url += `&createdAfter=${Math.floor(new Date(dateFrom).getTime() / 1000)}`;
-          if (dateTo) url += `&createdBefore=${Math.floor(new Date(dateTo).getTime() / 1000) + 86400}`;
+          const createdAfterTs = dateFrom ? Math.floor(new Date(dateFrom).getTime() / 1000) : null;
+          const createdBeforeTs = dateTo ? Math.floor(new Date(dateTo).getTime() / 1000) + 86400 : null;
 
-          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching test results for ${escapeHtml(testerName)}...</div>`;
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching runs for ${escapeHtml(testerName)}...</div>`;
 
-          const resp = await fetch(url);
-          if (!resp.ok) {
-            const errData = await resp.json();
-            throw new Error(errData.error || `Server error ${resp.status}`);
+          let allRuns = [];
+          let offset = 0;
+          let hasMore = true;
+          while (hasMore) {
+            let runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
+            if (createdAfterTs) runsEndpoint += `&created_after=${createdAfterTs}`;
+            if (createdBeforeTs) runsEndpoint += `&created_before=${createdBeforeTs}`;
+            const runsData = await apiGet(runsEndpoint);
+            const runs = runsData.runs || runsData || [];
+            if (Array.isArray(runs)) { allRuns = allRuns.concat(runs); hasMore = runs.length === 250; offset += 250; }
+            else { hasMore = false; }
           }
-          const data = await resp.json();
-          results = data.results || [];
 
-          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results from ${data.runs} runs...</div>`;
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Found ${allRuns.length} runs. Fetching results...</div>`;
+
+          for (let ri = 0; ri < allRuns.length; ri++) {
+            const run = allRuns[ri];
+            try {
+              let resultsOffset = 0;
+              let moreResults = true;
+              const runResults = [];
+              while (moreResults) {
+                let resEndpoint = `get_results_for_run/${run.id}&limit=250&offset=${resultsOffset}`;
+                if (createdAfterTs) resEndpoint += `&created_after=${createdAfterTs}`;
+                if (createdBeforeTs) resEndpoint += `&created_before=${createdBeforeTs}`;
+                const resData = await apiGet(resEndpoint);
+                const res2 = resData.results || resData || [];
+                if (Array.isArray(res2)) { runResults.push(...res2); moreResults = res2.length === 250; resultsOffset += 250; }
+                else { moreResults = false; }
+              }
+              const latestByTest = {};
+              for (const r of runResults) {
+                const testId = r.test_id || r.id;
+                if (!latestByTest[testId] || (r.created_on > latestByTest[testId].created_on)) latestByTest[testId] = r;
+              }
+              const latestResults = Object.values(latestByTest).filter(r => String(r.created_by) === String(userId) && r.status_id !== 3);
+              latestResults.forEach(r => { r._run_id = run.id; r._run_name = run.name; });
+              results.push(...latestResults);
+            } catch { continue; }
+            if ((ri + 1) % 5 === 0 || ri === allRuns.length - 1) {
+              document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing runs ${ri + 1}/${allRuns.length}... Found ${results.length} results.</div>`;
+            }
+          }
+
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results...</div>`;
         }
 
         // Enrich results with title, previous results, comments, and attachments
@@ -1051,6 +1086,10 @@
 
     // --- Event listeners ---
     document.getElementById('saveConfig').addEventListener('click', saveConfig);
+    document.getElementById('removeConfig').addEventListener('click', function() {
+      localStorage.removeItem('audit_config');
+      location.reload();
+    });
     document.getElementById('fetchBtn').addEventListener('click', fetchData);
     document.getElementById('searchFilter').addEventListener('input', applyFilters);
     document.getElementById('statusFilter').addEventListener('change', applyFilters);
