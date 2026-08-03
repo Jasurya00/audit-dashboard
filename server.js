@@ -37,7 +37,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Debug endpoint to test connectivity
 app.get('/api/debug', async (req, res) => {
   const dns = require('dns');
-  const testUrl = 'https://testrail.appstore.amazon.dev';
+  const testUrl = 'https://public.testrail.appstore.amazon.dev';
   const results = { timestamp: new Date().toISOString() };
 
   // DNS lookup

@@ -496,7 +496,7 @@
 
     // --- API helper ---
     // On localhost: uses local server proxy
-    // On hosted: uses WORKER_URL (Lambda proxy)
+    // On hosted (Harmony): calls TestRail directly from browser (user has Midway session)
     const IS_LOCALHOST = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
     async function apiGet(endpoint) {
@@ -504,14 +504,31 @@
       const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
       const auth = getAuthBase64();
 
-      const baseApiUrl = IS_LOCALHOST ? '' : WORKER_URL;
-      const proxyUrl = `${baseApiUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
-      const resp = await fetch(proxyUrl);
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`API error ${resp.status}: ${text}`);
+      if (IS_LOCALHOST) {
+        // Use local server proxy
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`API error ${resp.status}: ${text}`);
+        }
+        return resp.json();
+      } else {
+        // Call TestRail directly from browser (Midway cookie handles domain auth)
+        const resp = await fetch(targetUrl, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(`API error ${resp.status}: ${text}`);
+        }
+        return resp.json();
       }
-      return resp.json();
     }
 
     // --- Load projects ---
