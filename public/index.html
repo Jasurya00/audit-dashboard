@@ -515,13 +515,12 @@
         }
         return resp.json();
       } else {
-        // Use SAAM Lambda proxy (handles Midway auth server-side)
-        const apiPath = `/api/v2/${endpoint}`;
-        const proxyUrl = `${WORKER_URL}/api/proxy?path=${encodeURIComponent(apiPath)}&auth=${encodeURIComponent(auth)}`;
+        // Use Lambda proxy for Harmony
+        const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
+        const proxyUrl = `${WORKER_URL}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
         const resp = await fetch(proxyUrl, {
           method: 'GET',
           headers: {
-            'Authorization': getWorkerAuthHeader(),
             'Content-Type': 'application/json'
           }
         });
