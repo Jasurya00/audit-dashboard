@@ -29,7 +29,7 @@ function basicAuth(req, res, next) {
 }
 
 // Apply basic auth to all routes
-app.use(basicAuth);
+// app.use(basicAuth);  // Authentication disabled
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
