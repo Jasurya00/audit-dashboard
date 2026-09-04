@@ -2,7 +2,10 @@ const express = require('express');
 const path = require('path');
 
 const app = express();
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3001;
+const OPEN_BROWSER = process.env.OPEN_BROWSER !== 'false';
+const AUDIT_PROXY_BASE_URL = (process.env.AUDIT_PROXY_BASE_URL || '').trim().replace(/\/$/, '');
 
 // Basic auth credentials (set via environment variables on Render, or defaults for local dev)
 const AUTH_USER = process.env.AUTH_USER || 'admin';
@@ -32,6 +35,16 @@ function basicAuth(req, res, next) {
 // app.use(basicAuth);  // Authentication disabled
 
 app.use(express.json());
+
+app.get('/app-config.js', (req, res) => {
+  res.type('application/javascript');
+  res.send(
+    `window.AUDIT_APP_CONFIG = Object.freeze(${JSON.stringify({
+      proxyBaseUrl: AUDIT_PROXY_BASE_URL
+    })});`
+  );
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Debug endpoint to test connectivity
@@ -211,20 +224,30 @@ app.get('/api/results-by-tester', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, HOST, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`Audit Dashboard running at ${url}`);
 
-  // Auto-open in browser
+  if (!OPEN_BROWSER) {
+    return;
+  }
+
   const { exec } = require('child_process');
   const platform = process.platform;
+  let openCommand;
   if (platform === 'darwin') {
-    exec(`open ${url}`);
+    openCommand = `open ${url}`;
   } else if (platform === 'win32') {
-    exec(`start ${url}`);
+    openCommand = `start ${url}`;
   } else {
-    exec(`xdg-open ${url}`);
+    openCommand = `xdg-open ${url}`;
   }
+
+  exec(openCommand, (err) => {
+    if (err) {
+      console.warn(`Could not auto-open browser: ${err.message}`);
+    }
+  });
 });
 
 module.exports = app;

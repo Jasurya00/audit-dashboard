@@ -423,16 +423,10 @@
 
   <div class="saved-toast" id="toast">Config saved!</div>
 
+  <script src="/app-config.js"></script>
   <script>
-    // Lambda proxy URL (SAAM-authenticated, can reach Midway-protected services)
-    const WORKER_URL = 'https://3yaal3exre.execute-api.ap-south-1.amazonaws.com';
-
-    // Basic auth credentials for the Worker API
-    const WORKER_AUTH_USER = 'admin';
-    const WORKER_AUTH_PASS = 'audit@2024';
-
-    function getWorkerAuthHeader() {
-      return 'Basic ' + btoa(WORKER_AUTH_USER + ':' + WORKER_AUTH_PASS);
+    function getProxyBaseUrl() {
+      return (window.AUDIT_APP_CONFIG?.proxyBaseUrl || '').replace(/\/$/, '');
     }
 
     // Status maps — populated dynamically from API
@@ -496,40 +490,18 @@
     }
 
     // --- API helper ---
-    // Localhost: uses local Express proxy
-    // Hosted (Harmony): uses SAAM-enabled Lambda proxy (handles Midway auth server-side)
-    const IS_LOCALHOST = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
     async function apiGet(endpoint) {
       const config = getConfig();
       const auth = getAuthBase64();
-
-      if (IS_LOCALHOST) {
-        // Use local server proxy
-        const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
-        const resp = await fetch(proxyUrl);
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`API error ${resp.status}: ${text}`);
-        }
-        return resp.json();
-      } else {
-        // Use Lambda proxy for Harmony
-        const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
-        const proxyUrl = `${WORKER_URL}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
-        const resp = await fetch(proxyUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(`API error ${resp.status}: ${text}`);
-        }
-        return resp.json();
+      const targetUrl = `${config.baseUrl}/index.php?/api/v2/${endpoint}`;
+      const proxyBaseUrl = getProxyBaseUrl();
+      const proxyUrl = `${proxyBaseUrl}/api/proxy?url=${encodeURIComponent(targetUrl)}&auth=${encodeURIComponent(auth)}`;
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`API error ${resp.status}: ${text}`);
       }
+      return resp.json();
     }
 
     // --- Load projects ---

@@ -5,7 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build-harmony-app": "mkdir -p build && cp public/index.html build/index.html && cd build && tar -cf ../app.tar . && cd .."
+    "prebuild-harmony-app": "rm -rf src && mkdir -p src && cp public/index.html src/index.html",
+    "build-harmony-app": "build-harmony --templateName plain",
+    "prepublishOnly": "npm run prebuild-harmony-app && npm run build-harmony-app",
+    "publish-harmony-app": "harmony deploy"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.18.2"
