@@ -712,40 +712,56 @@
             else { hasMore = false; }
           }
 
-          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Found ${allRuns.length} runs. Fetching results...</div>`;
+          // Safe skip: a run that was COMPLETED before the window started cannot
+          // contain any in-window results. We only skip on completed_on (not
+          // created_on), so active/incomplete runs created earlier are still scanned.
+          const candidateRuns = allRuns.filter(run => {
+            if (createdAfterTs && run.completed_on && run.completed_on < createdAfterTs) return false;
+            return true;
+          });
 
-          for (let ri = 0; ri < allRuns.length; ri++) {
-            const run = allRuns[ri];
-            try {
-              let resultsOffset = 0;
-              let moreResults = true;
-              const runResults = [];
-              while (moreResults) {
-                let resEndpoint = `get_results_for_run/${run.id}&limit=250&offset=${resultsOffset}`;
-                if (createdAfterTs) resEndpoint += `&created_after=${createdAfterTs}`;
-                if (createdBeforeTs) resEndpoint += `&created_before=${createdBeforeTs}`;
-                const resData = await apiGet(resEndpoint);
-                const res2 = resData.results || resData || [];
-                if (Array.isArray(res2)) { runResults.push(...res2); moreResults = res2.length === 250; resultsOffset += 250; }
-                else { moreResults = false; }
-              }
-              // Keep only this tester's own executed results (exclude "Untested" = 3),
-              // THEN take the latest per test. Filtering by user first ensures another
-              // user's later update on the same test does not hide the tester's result.
-              const latestByTest = {};
-              for (const r of runResults) {
-                if (String(r.created_by) !== String(userId)) continue;
-                if (r.status_id === 3) continue;
-                const testId = r.test_id || r.id;
-                if (!latestByTest[testId] || (r.created_on > latestByTest[testId].created_on)) latestByTest[testId] = r;
-              }
-              const latestResults = Object.values(latestByTest);
-              latestResults.forEach(r => { r._run_id = run.id; r._run_name = run.name; });
-              results.push(...latestResults);
-            } catch { continue; }
-            if ((ri + 1) % 5 === 0 || ri === allRuns.length - 1) {
-              document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing runs ${ri + 1}/${allRuns.length}... Found ${results.length} results.</div>`;
+          document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Scanning ${candidateRuns.length} of ${allRuns.length} runs for results...</div>`;
+
+          // Fetch results for a single run (paginated), then reduce to this tester's
+          // latest result per test within the window.
+          async function fetchRunResults(run) {
+            let resultsOffset = 0;
+            let moreResults = true;
+            const runResults = [];
+            while (moreResults) {
+              let resEndpoint = `get_results_for_run/${run.id}&limit=250&offset=${resultsOffset}`;
+              if (createdAfterTs) resEndpoint += `&created_after=${createdAfterTs}`;
+              if (createdBeforeTs) resEndpoint += `&created_before=${createdBeforeTs}`;
+              const resData = await apiGet(resEndpoint);
+              const res2 = resData.results || resData || [];
+              if (Array.isArray(res2)) { runResults.push(...res2); moreResults = res2.length === 250; resultsOffset += 250; }
+              else { moreResults = false; }
             }
+            // Keep only this tester's own executed results (exclude "Untested" = 3),
+            // THEN take the latest per test.
+            const latestByTest = {};
+            for (const r of runResults) {
+              if (String(r.created_by) !== String(userId)) continue;
+              if (r.status_id === 3) continue;
+              const testId = r.test_id || r.id;
+              if (!latestByTest[testId] || (r.created_on > latestByTest[testId].created_on)) latestByTest[testId] = r;
+            }
+            const latestResults = Object.values(latestByTest);
+            latestResults.forEach(r => { r._run_id = run.id; r._run_name = run.name; });
+            return latestResults;
+          }
+
+          // Process runs in parallel batches for speed (was sequential = slow).
+          const RUN_CONCURRENCY = 8;
+          let processed = 0;
+          for (let i = 0; i < candidateRuns.length; i += RUN_CONCURRENCY) {
+            const batch = candidateRuns.slice(i, i + RUN_CONCURRENCY);
+            const batchResults = await Promise.all(
+              batch.map(run => fetchRunResults(run).catch(() => []))
+            );
+            batchResults.forEach(rs => results.push(...rs));
+            processed += batch.length;
+            document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing runs ${processed}/${candidateRuns.length}... Found ${results.length} results.</div>`;
           }
 
           document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Processing ${results.length} results...</div>`;
@@ -753,7 +769,7 @@
 
         // Enrich results with title, previous results, comments, and attachments
         const enriched = [];
-        const batchSize = 10;
+        const batchSize = 20;
 
         for (let i = 0; i < results.length; i += batchSize) {
           const batch = results.slice(i, i + batchSize);
