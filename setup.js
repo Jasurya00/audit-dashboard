@@ -65,14 +65,64 @@ if (nodeMajor < MIN_NODE_MAJOR) {
 }
 ok(`Node.js ${process.version}`);
 
+// ---- 1b. Self-update ---------------------------------------------------------
+// Pull the latest code BEFORE doing anything else. If setup.js itself changed,
+// re-exec the fresh copy so this run uses the newest logic (not the old one
+// already loaded into memory). Skip with NO_SELF_UPDATE=1.
+function selfUpdate() {
+  if (process.env.NO_SELF_UPDATE === '1' || process.env.AUDIT_UPDATED === '1') return;
+
+  // Determine the git repo root we should update (current dir if it's the repo,
+  // otherwise the standard install dir).
+  let repoDir = null;
+  if (fs.existsSync('.git') && fs.existsSync('setup.js')) repoDir = process.cwd();
+  else if (fs.existsSync(path.join(INSTALL_DIR, '.git'))) repoDir = INSTALL_DIR;
+  if (!repoDir || !has('git')) return; // fresh install is handled in step 2
+
+  step('Checking for updates');
+  // Fetch quietly; if offline, just continue with the current copy.
+  if (!run('git', ['-C', repoDir, 'fetch', '--quiet', 'origin'], { stdio: 'ignore' })) {
+    warn('Could not reach GitHub — continuing with the current version.');
+    return;
+  }
+
+  const branch = (spawnSync('git', ['-C', repoDir, 'rev-parse', '--abbrev-ref', 'HEAD'],
+    { encoding: 'utf8' }).stdout || 'main').trim() || 'main';
+  const local = (spawnSync('git', ['-C', repoDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout || '').trim();
+  const remote = (spawnSync('git', ['-C', repoDir, 'rev-parse', `origin/${branch}`], { encoding: 'utf8' }).stdout || '').trim();
+
+  if (!remote || local === remote) { ok('Already up to date'); return; }
+
+  // Detect whether setup.js is among the incoming changes.
+  const changed = (spawnSync('git', ['-C', repoDir, 'diff', '--name-only', 'HEAD', `origin/${branch}`],
+    { encoding: 'utf8' }).stdout || '');
+  const setupChanged = /(^|\n)setup\.js(\n|$)/.test(changed);
+
+  step('Update found — pulling latest changes');
+  if (!run('git', ['-C', repoDir, 'pull', '--ff-only', 'origin', branch])) {
+    warn('Automatic update failed (local changes?) — continuing with the current version.');
+    return;
+  }
+  ok('Updated to the latest version');
+
+  if (setupChanged) {
+    step('Relaunching with the updated setup...');
+    const r = spawnSync('node', [path.join(repoDir, 'setup.js')], {
+      stdio: 'inherit',
+      env: { ...process.env, AUDIT_UPDATED: '1' },
+    });
+    process.exit(r.status || 0);
+  }
+}
+selfUpdate();
+
 // ---- 2. Locate / download the app source ------------------------------------
 let appDir;
 if (fs.existsSync('server.js') && fs.existsSync('public')) {
   appDir = process.cwd();
   step(`Using app in current directory: ${appDir}`);
 } else if (fs.existsSync(path.join(INSTALL_DIR, '.git'))) {
-  step(`Updating existing installation at ${INSTALL_DIR}`);
-  if (!run('git', ['-C', INSTALL_DIR, 'pull', '--ff-only'])) warn('Could not update (continuing with existing copy)');
+  step(`Using installation at ${INSTALL_DIR}`);
   appDir = INSTALL_DIR;
 } else {
   if (!has('git')) {
