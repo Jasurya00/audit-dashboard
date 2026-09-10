@@ -444,7 +444,7 @@
       2893: 'Bajarat',
       2823: 'Chandru',
       2890: 'Subhashri',
-      2859: 'Jeyasurya',
+      2859: 'jeyasunr',
       2697: 'Premkumar'
     };
 
@@ -697,13 +697,15 @@
 
           document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Fetching runs for ${escapeHtml(testerName)}...</div>`;
 
+          // NOTE: We intentionally do NOT filter runs by created_after/created_before.
+          // A tester can execute results within the date window inside a run that was
+          // created earlier. Filtering runs by their creation date would drop those runs
+          // and miss the results. The date window is applied to the RESULTS below instead.
           let allRuns = [];
           let offset = 0;
           let hasMore = true;
           while (hasMore) {
-            let runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
-            if (createdAfterTs) runsEndpoint += `&created_after=${createdAfterTs}`;
-            if (createdBeforeTs) runsEndpoint += `&created_before=${createdBeforeTs}`;
+            const runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
             const runsData = await apiGet(runsEndpoint);
             const runs = runsData.runs || runsData || [];
             if (Array.isArray(runs)) { allRuns = allRuns.concat(runs); hasMore = runs.length === 250; offset += 250; }
@@ -727,12 +729,17 @@
                 if (Array.isArray(res2)) { runResults.push(...res2); moreResults = res2.length === 250; resultsOffset += 250; }
                 else { moreResults = false; }
               }
+              // Keep only this tester's own executed results (exclude "Untested" = 3),
+              // THEN take the latest per test. Filtering by user first ensures another
+              // user's later update on the same test does not hide the tester's result.
               const latestByTest = {};
               for (const r of runResults) {
+                if (String(r.created_by) !== String(userId)) continue;
+                if (r.status_id === 3) continue;
                 const testId = r.test_id || r.id;
                 if (!latestByTest[testId] || (r.created_on > latestByTest[testId].created_on)) latestByTest[testId] = r;
               }
-              const latestResults = Object.values(latestByTest).filter(r => String(r.created_by) === String(userId) && r.status_id !== 3);
+              const latestResults = Object.values(latestByTest);
               latestResults.forEach(r => { r._run_id = run.id; r._run_name = run.name; });
               results.push(...latestResults);
             } catch { continue; }
