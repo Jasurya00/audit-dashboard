@@ -66,41 +66,75 @@ if (nodeMajor < MIN_NODE_MAJOR) {
 ok(`Node.js ${process.version}`);
 
 // ---- 1b. Self-update ---------------------------------------------------------
-// Pull the latest code BEFORE doing anything else. If setup.js itself changed,
-// re-exec the fresh copy so this run uses the newest logic (not the old one
-// already loaded into memory). Skip with NO_SELF_UPDATE=1.
+// ALWAYS pull the latest code from GitHub before running, so teammates never
+// need the file re-shared - a `git push` to the tracked branch is enough.
+// If setup.js itself changed, re-exec the fresh copy so this run uses the
+// newest logic (not the stale in-memory one). Skip with NO_SELF_UPDATE=1.
+// Never let git block on an interactive credential/passphrase prompt during
+// auto-update - fail fast and fall back to the current version instead.
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
+
+function gitRun(repoDir, args, opts = {}) {
+  const r = spawnSync('git', ['-C', repoDir, ...args], { stdio: 'ignore', shell: false, env: GIT_ENV, ...opts });
+  return r.status === 0;
+}
+
+function gitOut(repoDir, args) {
+  return (spawnSync('git', ['-C', repoDir, ...args], { encoding: 'utf8', env: GIT_ENV }).stdout || '').trim();
+}
+
 function selfUpdate() {
   if (process.env.NO_SELF_UPDATE === '1' || process.env.AUDIT_UPDATED === '1') return;
 
-  // Determine the git repo root we should update (current dir if it's the repo,
-  // otherwise the standard install dir).
+  // The repo to update: current dir if it's a clone, else the standard install.
   let repoDir = null;
   if (fs.existsSync('.git') && fs.existsSync('setup.js')) repoDir = process.cwd();
   else if (fs.existsSync(path.join(INSTALL_DIR, '.git'))) repoDir = INSTALL_DIR;
   if (!repoDir || !has('git')) return; // fresh install is handled in step 2
 
-  step('Checking for updates');
-  // Fetch quietly; if offline, just continue with the current copy.
-  if (!run('git', ['-C', repoDir, 'fetch', '--quiet', 'origin'], { stdio: 'ignore' })) {
-    warn('Could not reach GitHub — continuing with the current version.');
+  step('Checking for updates from GitHub');
+  if (!gitRun(repoDir, ['fetch', '--quiet', 'origin'])) {
+    warn('Could not reach GitHub - continuing with the current version.');
     return;
   }
 
-  const branch = (spawnSync('git', ['-C', repoDir, 'rev-parse', '--abbrev-ref', 'HEAD'],
-    { encoding: 'utf8' }).stdout || 'main').trim() || 'main';
-  const local = (spawnSync('git', ['-C', repoDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout || '').trim();
-  const remote = (spawnSync('git', ['-C', repoDir, 'rev-parse', `origin/${branch}`], { encoding: 'utf8' }).stdout || '').trim();
+  const branch = gitOut(repoDir, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'main';
+  const local = gitOut(repoDir, ['rev-parse', 'HEAD']);
+  const remote = gitOut(repoDir, ['rev-parse', `origin/${branch}`]);
 
   if (!remote || local === remote) { ok('Already up to date'); return; }
 
-  // Detect whether setup.js is among the incoming changes.
-  const changed = (spawnSync('git', ['-C', repoDir, 'diff', '--name-only', 'HEAD', `origin/${branch}`],
-    { encoding: 'utf8' }).stdout || '');
+  // What is changing (to know whether setup.js needs a relaunch).
+  const changed = gitOut(repoDir, ['diff', '--name-only', 'HEAD', `origin/${branch}`]);
   const setupChanged = /(^|\n)setup\.js(\n|$)/.test(changed);
 
-  step('Update found — pulling latest changes');
-  if (!run('git', ['-C', repoDir, 'pull', '--ff-only', 'origin', branch])) {
-    warn('Automatic update failed (local changes?) — continuing with the current version.');
+  step('Update found - fetching latest changes');
+
+  // If the user has uncommitted local edits, stash them so the update can't
+  // fail, then try to re-apply afterwards.
+  const dirty = gitOut(repoDir, ['status', '--porcelain']).length > 0;
+  let stashed = false;
+  if (dirty) {
+    stashed = gitRun(repoDir, ['stash', 'push', '-u', '-m', 'audit-setup-autostash']);
+    if (stashed) warn('Your local changes were set aside so the update can apply.');
+  }
+
+  // Fast-forward if possible; otherwise hard-reset to match remote exactly so
+  // the user always ends up on the latest published version.
+  let updated = gitRun(repoDir, ['merge', '--ff-only', `origin/${branch}`]);
+  if (!updated) {
+    warn('History diverged - resetting to the latest published version.');
+    updated = gitRun(repoDir, ['reset', '--hard', `origin/${branch}`]);
+  }
+
+  // Re-apply the user's stashed changes (best effort).
+  if (stashed) {
+    const reapplied = gitRun(repoDir, ['stash', 'pop']);
+    if (!reapplied) warn('Your local changes are saved in `git stash` (auto-reapply hit a conflict).');
+  }
+
+  if (!updated) {
+    warn('Automatic update failed - continuing with the current version.');
     return;
   }
   ok('Updated to the latest version');
