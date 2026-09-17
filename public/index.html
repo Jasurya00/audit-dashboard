@@ -759,26 +759,57 @@
 
           // NOTE: We intentionally do NOT filter runs by created_after/created_before.
           // A tester can execute results within the date window inside a run that was
-          // created earlier. Filtering runs by their creation date would drop those runs
-          // and miss the results. The date window is applied to the RESULTS below instead.
+          // created earlier. The date window is applied to the RESULTS below instead.
           let allRuns = [];
-          let offset = 0;
-          let hasMore = true;
-          while (hasMore) {
-            const runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
-            const runsData = await apiGet(runsEndpoint);
-            const runs = runsData.runs || runsData || [];
-            if (Array.isArray(runs)) { allRuns = allRuns.concat(runs); hasMore = runs.length === 250; offset += 250; }
-            else { hasMore = false; }
+
+          // 1) Standalone runs (get_runs only returns runs NOT inside a test plan).
+          {
+            let offset = 0;
+            let hasMore = true;
+            while (hasMore) {
+              const runsEndpoint = `get_runs/${projectId}&limit=250&offset=${offset}`;
+              const runsData = await apiGet(runsEndpoint);
+              const runs = runsData.runs || runsData || [];
+              if (Array.isArray(runs)) { allRuns = allRuns.concat(runs); hasMore = runs.length === 250; offset += 250; }
+              else { hasMore = false; }
+            }
           }
 
-          // Safe skip: a run that was COMPLETED before the window started cannot
-          // contain any in-window results. We only skip on completed_on (not
-          // created_on), so active/incomplete runs created earlier are still scanned.
-          const candidateRuns = allRuns.filter(run => {
-            if (createdAfterTs && run.completed_on && run.completed_on < createdAfterTs) return false;
-            return true;
-          });
+          // 2) Runs INSIDE test plans. These do NOT appear in get_runs, so we must
+          //    walk get_plans -> get_plan/:id -> entries[].runs. Missing this is the
+          //    common cause of "0 cases" when the tester's work was in a plan.
+          try {
+            let planList = [];
+            let pOffset = 0;
+            let pHasMore = true;
+            while (pHasMore) {
+              const plansData = await apiGet(`get_plans/${projectId}&limit=250&offset=${pOffset}`);
+              const plans = plansData.plans || plansData || [];
+              if (Array.isArray(plans)) { planList = planList.concat(plans); pHasMore = plans.length === 250; pOffset += 250; }
+              else { pHasMore = false; }
+            }
+
+            document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Found ${allRuns.length} runs + ${planList.length} plans. Expanding plans...</div>`;
+
+            const PLAN_CONCURRENCY = 8;
+            for (let i = 0; i < planList.length; i += PLAN_CONCURRENCY) {
+              const batch = planList.slice(i, i + PLAN_CONCURRENCY);
+              const details = await Promise.all(
+                batch.map(p => apiGet(`get_plan/${p.id}`).catch(() => null))
+              );
+              details.forEach(plan => {
+                if (!plan || !Array.isArray(plan.entries)) return;
+                plan.entries.forEach(entry => {
+                  (entry.runs || []).forEach(r => allRuns.push(r));
+                });
+              });
+            }
+          } catch (e) {
+            console.warn('Could not load test plans:', e && e.message);
+          }
+
+          // Scan every run; the date window is applied to results, not runs.
+          const candidateRuns = allRuns;
 
           document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Scanning ${candidateRuns.length} of ${allRuns.length} runs for results...</div>`;
 
