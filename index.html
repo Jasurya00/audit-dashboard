@@ -807,8 +807,14 @@
             console.warn('Could not load test plans:', e && e.message);
           }
 
-          // Scan every run; the date window is applied to results, not runs.
-          const candidateRuns = allRuns;
+          // SAFE speed filter: a run CLOSED before the window started cannot hold
+          // any in-window results (closed runs accept no new results). We skip only
+          // on completed_on - never on created_on - so active/incomplete runs and
+          // runs still open during the window are always scanned. This does not
+          // miss data; it only avoids fetching results from long-finished runs.
+          const candidateRuns = createdAfterTs
+            ? allRuns.filter(run => !(run.completed_on && run.completed_on < createdAfterTs))
+            : allRuns;
 
           document.getElementById('results').innerHTML = `<div class="loading"><span class="spinner"></span>Scanning ${candidateRuns.length} of ${allRuns.length} runs for results...</div>`;
 
@@ -842,7 +848,7 @@
           }
 
           // Process runs in parallel batches for speed (was sequential = slow).
-          const RUN_CONCURRENCY = 8;
+          const RUN_CONCURRENCY = 12;
           let processed = 0;
           for (let i = 0; i < candidateRuns.length; i += RUN_CONCURRENCY) {
             const batch = candidateRuns.slice(i, i + RUN_CONCURRENCY);
@@ -868,19 +874,17 @@
             let attachmentsHtml = '<span style="color:#999">None</span>';
             let testedOn = result.created_on ? new Date(result.created_on * 1000).toLocaleString() : 'N/A';
 
-            // Get test title
+            // Fetch title and attachments IN PARALLEL (were sequential = 2x slower).
             if (result.test_id) {
-              try {
-                const test = await apiGet(`get_test/${result.test_id}`);
-                title = test.title || title;
-              } catch { /* use default */ }
-            }
-
-            // Fetch attachments
-            if (result.test_id) {
-              try {
-                const attData = await apiGet(`get_attachments_for_test/${result.test_id}`);
-                const attachments = attData.attachments || attData || [];
+              const [testRes, attRes] = await Promise.allSettled([
+                apiGet(`get_test/${result.test_id}`),
+                apiGet(`get_attachments_for_test/${result.test_id}`)
+              ]);
+              if (testRes.status === 'fulfilled' && testRes.value && testRes.value.title) {
+                title = testRes.value.title;
+              }
+              if (attRes.status === 'fulfilled' && attRes.value) {
+                const attachments = attRes.value.attachments || attRes.value || [];
                 if (Array.isArray(attachments) && attachments.length > 0) {
                   attachmentsHtml = '<ul class="attachment-list">' +
                     attachments.slice(0, 3).map(a => {
@@ -890,7 +894,7 @@
                     (attachments.length > 3 ? `<li style="color:#999; font-size:0.75rem">+${attachments.length - 3} more</li>` : '') +
                     '</ul>';
                 }
-              } catch { /* ignore */ }
+              }
             }
 
             // Comment from the result
